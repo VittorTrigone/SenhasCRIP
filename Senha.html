@@ -1,3 +1,24 @@
+<!--
+pbkdf2-browser.html
+Uma página estática (HTML + JS) que roda PBKDF2 no navegador (client-side) e gera senhas determinísticas a partir de uma "pre-senha" (ex: Master+Site+Ano) + salt do site.
+
+Instruções rápidas:
+1) Salve este arquivo como `pbkdf2-browser.html`.
+2) Para testar localmente: abra no navegador (arraste para a janela do Chrome/Firefox). Tudo roda no seu navegador — nada é enviado a servidor.
+3) Para publicar no GitHub Pages:
+   - Crie um repositório novo no GitHub.
+   - Faça upload deste arquivo na raiz (ou clone e commit).
+   - Ative GitHub Pages nas configurações, escolha `main` branch e `/ (root)` como fonte.
+   - A página ficará disponível em `https://<seu-usuario>.github.io/<repo>/pbkdf2-browser.html` (ou só root se renomear index.html).
+
+Segurança / Avisos:
+- O cálculo é feito no navegador (Web Crypto API). Evite usar a sua master real em sites não confiáveis.
+- Não compartilhe sua master. Prefira rodar isso localmente. Para máxima segurança, use um gerenciador de senhas reconhecido.
+- Se publicar a página, qualquer um que abra a página no navegador pode usar a ferramenta — MAS nenhum dado é enviado para nenhum servidor.
+
+Licença: MIT (sinta-se livre para adaptar).
+-->
+
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -17,6 +38,7 @@
     pre{background:#0f1724;color:#e6eef8;padding:12px;border-radius:6px;overflow:auto}
     .tiny{font-size:13px;color:#4b5563}
     .note{background:#fffbea;border-left:4px solid #ffd54a;padding:10px;margin-top:12px;border-radius:6px}
+      @media(max-width:600px){body{margin:12px;padding:12px}.row{flex-direction:column}.col{width:100%}h1{font-size:18px}.card{padding:12px}}
   </style>
 </head>
 <body>
