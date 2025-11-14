@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PBKDF2 Senha Determinística (client-side)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;max-width:900px;margin:28px auto;padding:16px;color:#111}
+    h1{font-size:20px;margin-bottom:0}
+    .card{border:1px solid #e6e6e6;padding:16px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.03);margin-top:12px}
+    label{display:block;margin-top:10px;font-weight:600}
+    input[type=text], input[type=number], textarea, select{width:100%;padding:8px;margin-top:6px;border-radius:6px;border:1px solid #ddd}
+    button{margin-top:12px;padding:10px 14px;border-radius:8px;border:0;background:#0b74de;color:white;font-weight:600;cursor:pointer}
+    button.secondary{background:#6c757d}
+    .row{display:flex;gap:12px}
+    .col{flex:1}
+    pre{background:#0f1724;color:#e6eef8;padding:12px;border-radius:6px;overflow:auto}
+    .tiny{font-size:13px;color:#4b5563}
+    .note{background:#fffbea;border-left:4px solid #ffd54a;padding:10px;margin-top:12px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <h1>PBKDF2 — Gerador de Senhas Determinísticas (client-side)</h1>
+  <div class="card">
+    <div class="tiny">Digite sua <strong>pre-senha</strong> (ex: <code>M4estra!YouTube2025</code>) e o <strong>salt do site</strong> (ex: <code>youtube.com</code>). Tudo roda no seu navegador.</div>
+
+    <label>Pre-senha (Master + Site + Ano)</label>
+    <input id="pre" type="text" placeholder="M4estra!YouTube2025" autocomplete="off" />
+
+    <label>Salt do site (ex: youtube.com ou youtube.com:v2)</label>
+    <input id="salt" type="text" placeholder="youtube.com" autocomplete="off" />
+
+    <div class="row">
+      <div class="col">
+        <label>Algoritmo</label>
+        <select id="alg">
+          <option value="PBKDF2">PBKDF2-HMAC-SHA-256</option>
+        </select>
+      </div>
+      <div class="col">
+        <label>Iterações</label>
+        <input id="iter" type="number" value="120000" min="1000" />
+      </div>
+      <div class="col">
+        <label>Tamanho senha (chars)</label>
+        <input id="length" type="number" value="16" min="4" max="64" />
+      </div>
+    </div>
+
+    <label>Símbolos permitidos (adapte conforme regras do site)</label>
+    <input id="symbols" type="text" value="!@#$%&*?" />
+
+    <div class="row">
+      <button id="gen">Gerar senha</button>
+      <button id="copy" class="secondary">Copiar</button>
+      <button id="group" class="secondary">Alternar agrupamento</button>
+    </div>
+
+    <div style="margin-top:12px">
+      <label>Senha gerada</label>
+      <pre id="out">(nenhuma)</pre>
+      <div class="tiny" id="outinfo">Formato: sem agrupamento</div>
+    </div>
+
+    <div class="note">
+      <strong>Atenção:</strong> Se a página estiver hospedada em servidor público (ex.: GitHub Pages), ela será pública. O cálculo é feito no navegador e não envia dados por padrão — mas evite inserir sua master real em páginas públicas que você não controla.
+    </div>
+  </div>
+
+<script>
+// Funções utilitárias
+function encodeUTF8(s){return new TextEncoder().encode(s)}
+function bytesToBase64(bytes){let bin='';for(let b of bytes)bin+=String.fromCharCode(b);return btoa(bin)}
+
+async function derivePBKDF2(pre, salt, iterations, dkLenBytes=32){
+  // usa Web Crypto API. Deriva bits com HMAC-SHA-256.
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw', encodeUTF8(pre), {name: 'PBKDF2'}, false, ['deriveBits']
+  );
+  const derived = await window.crypto.subtle.deriveBits(
+    {name:'PBKDF2', hash:'SHA-256', salt: encodeUTF8(salt), iterations: iterations},
+    keyMaterial, dkLenBytes*8
+  );
+  return new Uint8Array(derived);
+}
+
+function mapBytesToAlphabet(bytes, alphabet, outLen){
+  const out = [];
+  for(let i=0;i<outLen;i++){
+    const a = bytes[i % bytes.length];
+    const b = bytes[(i*7) % bytes.length];
+    const idx = (a + b + i) % alphabet.length;
+    out.push(alphabet[idx]);
+  }
+  return out.join('');
+}
+
+function ensureCategories(pwd, symbols){
+  const hasLower = /[a-z]/.test(pwd);
+  const hasUpper = /[A-Z]/.test(pwd);
+  const hasDigit = /[0-9]/.test(pwd);
+  const hasSym = new RegExp('[' + symbols.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&') + ']').test(pwd);
+  let arr = pwd.split('');
+  if(!hasLower) arr[0] = 'a';
+  if(!hasUpper) arr[1] = 'A';
+  if(!hasDigit) arr[2] = '5';
+  if(!hasSym) arr[3] = symbols[0] || '!';
+  return arr.join('');
+}
+
+function groupify(s, n=4){
+  const parts = [];
+  for(let i=0;i<s.length;i+=n) parts.push(s.slice(i,i+n));
+  return parts.join('-');
+}
+
+// UI
+const preEl = document.getElementById('pre');
+const saltEl = document.getElementById('salt');
+const iterEl = document.getElementById('iter');
+const lengthEl = document.getElementById('length');
+const symbolsEl = document.getElementById('symbols');
+const outEl = document.getElementById('out');
+const outInfo = document.getElementById('outinfo');
+const genBtn = document.getElementById('gen');
+const copyBtn = document.getElementById('copy');
+const groupBtn = document.getElementById('group');
+let grouped=false;
+
+async function generateAndShow(){
+  const pre = preEl.value || '';
+  const salt = saltEl.value || '';
+  const iter = Math.max(1000, parseInt(iterEl.value) || 120000);
+  const outLen = Math.max(4, Math.min(64, parseInt(lengthEl.value) || 16));
+  const symbols = symbolsEl.value || '!@#$%&*?';
+
+  if(!pre || !salt){
+    outEl.textContent = '(pre-senha e salt são necessários)';
+    return;
+  }
+
+  outEl.textContent = 'Gerando...';
+
+  try{
+    const dk = await derivePBKDF2(pre, salt, iter, 64); // pega 64 bytes
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + '0123456789' + symbols;
+    let pwd = mapBytesToAlphabet(dk, alphabet, outLen);
+    pwd = ensureCategories(pwd, symbols);
+    const shown = grouped ? groupify(pwd,4) : pwd;
+    outEl.textContent = shown;
+    outInfo.textContent = `Determinístico — algoritmo PBKDF2-HMAC-SHA-256, iter=${iter}, salt="${salt}"`;
+  }catch(e){
+    outEl.textContent = 'Erro: ' + e.message;
+  }
+}
+
+genBtn.addEventListener('click', generateAndShow);
+copyBtn.addEventListener('click', ()=>{
+  const text = outEl.textContent || '';
+  if(text && text !== '(nenhuma)' && text !== 'Gerando...' && !text.startsWith('Erro')){
+    navigator.clipboard.writeText(text.replace(/-/g,''))
+      .then(()=> alert('Senha copiada (sem hífens).'))
+      .catch(()=> alert('Falha ao copiar — copie manualmente.'));
+  } else alert('Nada para copiar. Gere uma senha primeiro.');
+});
+
+groupBtn.addEventListener('click', ()=>{ grouped = !grouped; generateAndShow(); });
+
+// atalhos: Enter para gerar
+[preEl, saltEl].forEach(el=>el.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter') generateAndShow(); }));
+
+</script>
+</body>
+</html>
